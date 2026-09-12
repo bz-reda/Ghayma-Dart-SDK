@@ -59,7 +59,7 @@ See [`example/main.dart`](example/main.dart) for a runnable walkthrough.
 
 The default `InMemoryTokenStorage` forgets everything when the process exits.
 Implement `TokenStorage` over the store of your choice — here
-[`flutter_secure_storage`](https://pub.dev/packages/flutter_secure_storage) 11.x:
+[`flutter_secure_storage`](https://pub.dev/packages/flutter_secure_storage):
 
 ```dart
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -186,14 +186,13 @@ and, on rate limits, `retryAfter` in seconds.
 | `code` | When |
 | --- | --- |
 | `invalid_request` | the request was malformed or a field was rejected |
-| `invalid_credentials` | wrong password, wrong 2FA code |
-| `invalid_grant` | a spent or expired one-time code, challenge or reset token |
+| `invalid_grant` | a spent, expired or mismatched one-time code at `exchangeCode` |
 | `invalid_token` | a provider ID token that failed verification |
 | `rate_limited` | 429; read `retryAfter` |
 | `oauth_error` | the provider handed back `?error=` on the redirect |
 | `network_error` | the request never reached the service (`status` 0) |
 | `timeout` | no answer within 30 s (`status` 408) |
-| `auth_error` | anything else the service did not label |
+| `auth_error` | anything the service did not label — a wrong password or 2FA code is a plain `401` here, a missing session is `401` before any request |
 
 ```dart
 try {

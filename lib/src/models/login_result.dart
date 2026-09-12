@@ -44,7 +44,7 @@ class TwoFaRequired extends LoginResult {
   factory TwoFaRequired.fromJson(Map<String, Object?> json) => TwoFaRequired(
         challengeToken: requiredString(json['challenge_token']),
         methods: stringList(json['methods']),
-        phoneHint: requiredString(json['phone_hint']),
+        phoneHint: optString(json['phone_hint']) ?? '',
       );
 }
 

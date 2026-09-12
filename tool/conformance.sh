@@ -6,7 +6,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
 port="${PRISM_PORT:-4010}"
-log="$(mktemp -t prism-ghayma-auth)"
+log="$(mktemp "${TMPDIR:-/tmp}/prism-ghayma-auth.XXXXXX")"
 
 npx --yes @stoplight/prism-cli@5 mock "$root/spec/auth.v1.yaml" \
   -p "$port" --errors >"$log" 2>&1 &

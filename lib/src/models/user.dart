@@ -50,7 +50,7 @@ class User {
   factory User.fromJson(Map<String, Object?> json) => User(
         id: requiredString(json['id']),
         email: requiredString(json['email']),
-        name: requiredString(json['name']),
+        name: optString(json['name']) ?? '',
         avatarUrl: optString(json['avatar_url']),
         emailVerified: boolOf(json['email_verified']),
         provider: requiredString(json['provider']),
