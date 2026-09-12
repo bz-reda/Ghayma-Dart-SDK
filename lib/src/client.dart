@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import 'errors.dart';
 import 'http.dart';
+import 'models/json.dart';
 import 'models/login_result.dart';
 import 'models/misc.dart';
 import 'models/register_result.dart';
@@ -213,7 +214,7 @@ class GhaymaAuth {
     final json = await _http.send('POST', '/2fa/recovery/regenerate',
         accessToken: await getAccessToken(),
         body: {'password': password, 'code': code});
-    return TotpConfirmation.fromJson(json).recoveryCodes;
+    return stringList(json['recovery_codes']);
   }
 
   /// Turns the second factor off.
