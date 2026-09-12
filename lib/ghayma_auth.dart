@@ -20,4 +20,5 @@ export 'src/models/register_result.dart'
 export 'src/models/session.dart' show Session, TokenPair;
 export 'src/models/two_factor.dart' show TotpConfirmation, TotpEnrollment;
 export 'src/models/user.dart' show User;
+export 'src/pkce.dart' show Pkce, PkcePair;
 export 'src/session.dart' show InMemoryTokenStorage, TokenStorage;

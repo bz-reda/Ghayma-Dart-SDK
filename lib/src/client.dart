@@ -10,6 +10,7 @@ import 'models/register_result.dart';
 import 'models/session.dart';
 import 'models/two_factor.dart';
 import 'models/user.dart';
+import 'pkce.dart';
 import 'session.dart';
 
 const _defaultBaseUrl = 'https://auth.ghayma.tech';
@@ -38,6 +39,7 @@ class GhaymaAuth {
 
   Timer? _refreshTimer;
   Future<TokenPair>? _inFlightRefresh;
+  String? _pendingVerifier;
   bool _disposed = false;
 
   factory GhaymaAuth({
@@ -377,6 +379,112 @@ class GhaymaAuth {
   Future<void> cancelEmailChange() async {
     await _http.send('DELETE', '/email/change-request',
         accessToken: await getAccessToken());
+  }
+
+  // ==================== OAuth (PKCE only) ====================
+
+  /// The provider sign-in URL to open in a browser. With [codeChallenge] the
+  /// redirect carries a one-time `?code=` instead of tokens.
+  ///
+  /// [redirectUri] must match one of the app's allowed origins.
+  String oauthUrl(
+    OAuthProvider provider, {
+    required String redirectUri,
+    String? codeChallenge,
+  }) {
+    // Percent-encoding rather than query-parameter encoding: form encoding
+    // would change the bytes of a redirect URI holding `~`, `!`, `(`, `)` or
+    // a space.
+    final buffer = StringBuffer('$baseUrl/v1/$appSlug/auth/${provider.name}'
+        '?redirect_uri=${Uri.encodeComponent(redirectUri)}');
+    if (codeChallenge != null) {
+      buffer.write('&code_challenge=${Uri.encodeComponent(codeChallenge)}'
+          '&code_challenge_method=S256');
+    }
+    return buffer.toString();
+  }
+
+  /// Prepares a PKCE sign-in: mints a verifier, remembers it for
+  /// [handleRedirect], and returns it alongside the URL to open.
+  ///
+  /// An app that opens the URL in an external browser can persist
+  /// [OAuthStart.codeVerifier] itself and hand it back to [handleRedirect].
+  Future<OAuthStart> startOAuth(
+    OAuthProvider provider, {
+    required String redirectUri,
+  }) async {
+    final pkce = await Pkce.generate();
+    _pendingVerifier = pkce.codeVerifier;
+    return OAuthStart(
+      url: oauthUrl(provider,
+          redirectUri: redirectUri, codeChallenge: pkce.codeChallenge),
+      codeVerifier: pkce.codeVerifier,
+      codeChallenge: pkce.codeChallenge,
+    );
+  }
+
+  /// Finishes a sign-in from the URI the provider redirected to.
+  ///
+  /// Uses [codeVerifier] when given, else the one [startOAuth] remembered,
+  /// which it forgets once the exchange succeeds.
+  ///
+  /// Throws [GhaymaAuthException] 400 `oauth_error` when the redirect carries
+  /// `?error=`, `invalid_request` when it carries no code, and `invalid_grant`
+  /// when no verifier is available for it.
+  Future<Session> handleRedirect(Uri redirect, {String? codeVerifier}) async {
+    final error = redirect.queryParameters['error'];
+    if (error != null && error.isNotEmpty) {
+      throw GhaymaAuthException(400, 'oauth_error', error);
+    }
+
+    final code = redirect.queryParameters['code'];
+    if (code == null || code.isEmpty) {
+      throw const GhaymaAuthException(
+          400, 'invalid_request', 'no code in this redirect');
+    }
+
+    final verifier = codeVerifier ?? _pendingVerifier;
+    if (verifier == null) {
+      throw const GhaymaAuthException(
+          400, 'invalid_grant', 'no PKCE verifier for this redirect');
+    }
+
+    final session = await exchangeCode(code: code, codeVerifier: verifier);
+    _pendingVerifier = null;
+    return session;
+  }
+
+  /// Trades the one-time code from a PKCE redirect for a session.
+  Future<Session> exchangeCode({
+    required String code,
+    required String codeVerifier,
+    RequestOptions? options,
+  }) async {
+    final json = await _http.send('POST', '/oauth/exchange',
+        options: options, body: {'code': code, 'code_verifier': codeVerifier});
+    final session = Session.fromJson(json);
+    await _setSession(session, AuthEvent.signedIn);
+    return session;
+  }
+
+  /// Signs in with a provider ID token obtained natively on iOS or Android,
+  /// with no browser involved. [nonce], when given, must match the token's
+  /// claim.
+  Future<Session> signInWithIdToken({
+    OAuthProvider provider = OAuthProvider.google,
+    required String idToken,
+    String? nonce,
+    RequestOptions? options,
+  }) async {
+    final json =
+        await _http.send('POST', '/oauth/id-token', options: options, body: {
+      'provider': provider.name,
+      'id_token': idToken,
+      if (nonce != null) 'nonce': nonce,
+    });
+    final session = Session.fromJson(json);
+    await _setSession(session, AuthEvent.signedIn);
+    return session;
   }
 
   // ==================== Internal ====================
