@@ -79,16 +79,6 @@ class Session {
         'user': user.toJson(),
         'expires_at_ms': expiresAt.millisecondsSinceEpoch,
       };
-
-  /// The same session with a rotated token pair and a recomputed expiry.
-  Session withTokens(TokenPair tokens) => Session(
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        expiresIn: tokens.expiresIn,
-        tokenType: tokens.tokenType,
-        user: user,
-        expiresAt: expiryFromNow(tokens.expiresIn),
-      );
 }
 
 // Millisecond precision, so a persisted session restores to the same instant.

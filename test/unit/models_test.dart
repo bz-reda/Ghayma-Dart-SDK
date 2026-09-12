@@ -87,23 +87,6 @@ void main() {
       expect(original.toJson()['expires_at_ms'],
           original.expiresAt.millisecondsSinceEpoch);
     });
-
-    test('withTokens keeps the user and takes the new pair', () {
-      final original =
-          Session.fromJson(specExample(_login, 'post', '200', 'success'));
-      final rotated = original.withTokens(const TokenPair(
-        accessToken: 'new-access',
-        refreshToken: 'new-refresh',
-        expiresIn: 60,
-        tokenType: 'Bearer',
-      ));
-
-      expect(rotated.accessToken, 'new-access');
-      expect(rotated.refreshToken, 'new-refresh');
-      expect(rotated.expiresIn, 60);
-      expect(rotated.user.id, original.user.id);
-      expect(rotated.expiresAt.isBefore(original.expiresAt), isTrue);
-    });
   });
 
   test('TokenPair parses the refresh example', () {
