@@ -1,0 +1,2229 @@
+openapi: 3.0.3
+info:
+  title: Ghayma Auth API
+  version: 1.0.0
+  description: |
+    End-user authentication API of Ghayma auth apps. Every path is scoped by the
+    app slug (`app_id` in the console). Public endpoints take no credentials;
+    account endpoints take the end user's access token as a bearer token.
+    Server-side callers that forward end-user traffic send `X-Ghayma-Server-Key`
+    together with `X-Ghayma-Client-IP` (both or neither) so rate limits apply
+    to the real client, not the server's IP.
+servers:
+  - url: https://auth.ghayma.tech
+tags:
+  - name: Registration
+  - name: Session
+  - name: Password
+  - name: Email
+  - name: Two-factor
+  - name: OAuth
+  - name: Account
+  - name: Browser flows
+  - name: Keys
+paths:
+  /v1/{appSlug}/register:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [Registration]
+      operationId: register
+      summary: Create an end-user account with email and password.
+      description: |
+        Returns a session when the app does not require email verification. When it
+        does, no tokens are issued: the response carries the new user and a message,
+        and the emailed link must be opened first.
+      parameters:
+        - $ref: '#/components/parameters/serverKey'
+        - $ref: '#/components/parameters/clientIP'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              email: user@example.com
+              password: s3cret-passphrase
+              name: Sample User
+      responses:
+        '201':
+          description: Account created.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/Session'
+                  - $ref: '#/components/schemas/PendingVerification'
+              examples:
+                success:
+                  summary: Verification not required — tokens issued immediately.
+                  value:
+                    access_token: eyJhbGciOiJSUzI1NiIsImtpZCI6Im15LWFwcC12MSJ9...
+                    refresh_token: 9f8e7d6c5b4a...
+                    expires_in: 900
+                    token_type: Bearer
+                    user:
+                      id: 3f7c2b90-5e1a-4f2b-9c3d-8a1b2c3d4e5f
+                      email: user@example.com
+                      name: Sample User
+                      email_verified: false
+                      provider: email
+                      totp_enabled: false
+                      whatsapp_otp_enabled: false
+                      recovery_codes_left: 0
+                      created_at: '2026-09-01T10:15:00Z'
+                verification_required:
+                  summary: App requires email verification — no tokens yet.
+                  value:
+                    message: account created, please verify your email
+                    user:
+                      id: 3f7c2b90-5e1a-4f2b-9c3d-8a1b2c3d4e5f
+                      email: user@example.com
+                      name: Sample User
+                      email_verified: false
+                      provider: email
+                      totp_enabled: false
+                      whatsapp_otp_enabled: false
+                      recovery_codes_left: 0
+                      created_at: '2026-09-01T10:15:00Z'
+        '400':
+          description: Malformed body, or a password shorter than 8 characters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: 'invalid request: email and password (min 8 chars) required'
+        '403':
+          description: The app has reached the user cap of its capacity bracket.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: user limit reached for this auth app; the app owner must upgrade its capacity bracket
+        '409':
+          description: The email is already registered in this app.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                conflict:
+                  value:
+                    error: unable to create account with this email
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/login:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [Session]
+      operationId: login
+      summary: Exchange email and password for a session.
+      description: |
+        A password alone never yields tokens for a user with a second factor. When the
+        app's 2FA policy applies, the 200 carries a challenge (enrolled user) or an
+        enrolment token (enforced policy, user not enrolled) instead of a session.
+      parameters:
+        - $ref: '#/components/parameters/serverKey'
+        - $ref: '#/components/parameters/clientIP'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: user@example.com
+              password: s3cret-passphrase
+      responses:
+        '200':
+          description: Session, or a pending second-factor step.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/Session'
+                  - $ref: '#/components/schemas/TwoFARequired'
+                  - $ref: '#/components/schemas/TwoFAEnrollmentRequired'
+              examples:
+                success:
+                  summary: No second factor applies.
+                  value:
+                    access_token: eyJhbGciOiJSUzI1NiIsImtpZCI6Im15LWFwcC12MSJ9...
+                    refresh_token: 9f8e7d6c5b4a...
+                    expires_in: 900
+                    token_type: Bearer
+                    user:
+                      id: 3f7c2b90-5e1a-4f2b-9c3d-8a1b2c3d4e5f
+                      email: user@example.com
+                      name: Sample User
+                      email_verified: true
+                      provider: email
+                      totp_enabled: false
+                      whatsapp_otp_enabled: false
+                      recovery_codes_left: 0
+                      created_at: '2026-09-01T10:15:00Z'
+                      last_login_at: '2026-09-09T08:30:00Z'
+                two_fa_required:
+                  summary: Enrolled user — finish at /2fa/verify.
+                  value:
+                    two_fa_required: true
+                    challenge_token: 4c1d8ab2e3f5...
+                    methods: [totp]
+                    phone_hint: ''
+                enrollment_required:
+                  summary: Enforced policy, user not enrolled — run TOTP enrolment with the enroll_token.
+                  value:
+                    two_fa_enrollment_required: true
+                    enroll_token: 7b2e9c40a1d6...
+                    methods: [totp]
+        '400':
+          description: Malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: email and password required
+        '401':
+          description: Unknown email or wrong password (one message for both).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_credentials:
+                  value:
+                    error: invalid email or password
+        '403':
+          description: The account is disabled, or the app requires a verified email.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                disabled:
+                  value:
+                    error: account is disabled
+                forbidden:
+                  value:
+                    error: please verify your email before logging in
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/refresh:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [Session]
+      operationId: refresh
+      summary: Rotate a refresh token for a new token pair.
+      description: |
+        The presented refresh token is revoked and replaced. Presenting an
+        already-revoked token is treated as theft: every session of that user in
+        this app is revoked and the call answers 403.
+      parameters:
+        - $ref: '#/components/parameters/serverKey'
+        - $ref: '#/components/parameters/clientIP'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+            example:
+              refresh_token: 9f8e7d6c5b4a...
+      responses:
+        '200':
+          description: A new token pair. The user object is not repeated here.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+              examples:
+                success:
+                  value:
+                    access_token: eyJhbGciOiJSUzI1NiIsImtpZCI6Im15LWFwcC12MSJ9...
+                    refresh_token: 1a2b3c4d5e6f...
+                    expires_in: 900
+                    token_type: Bearer
+        '400':
+          description: Malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: refresh_token required
+        '401':
+          description: Unknown, expired or otherwise unusable refresh token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_token:
+                  value:
+                    error: invalid refresh token
+        '403':
+          description: Reuse of a revoked token — all sessions of this user were revoked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: refresh token reuse detected, all sessions revoked
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/logout:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [Session]
+      operationId: logout
+      summary: Revoke one refresh token.
+      description: Always answers 200, whether or not the token existed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+            example:
+              refresh_token: 9f8e7d6c5b4a...
+      responses:
+        '200':
+          description: The token is revoked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              examples:
+                success:
+                  value:
+                    message: logged out
+        '400':
+          description: Malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: refresh_token required
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/me:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    get:
+      tags: [Account]
+      operationId: getMe
+      summary: Read the signed-in user's profile.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The profile, wrapped in a `user` key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserEnvelope'
+              examples:
+                success:
+                  value:
+                    user:
+                      id: 3f7c2b90-5e1a-4f2b-9c3d-8a1b2c3d4e5f
+                      email: user@example.com
+                      name: Sample User
+                      avatar_url: https://cdn.example.com/avatars/sample.png
+                      email_verified: true
+                      provider: email
+                      app_metadata:
+                        role: member
+                      totp_enabled: true
+                      whatsapp_otp_enabled: false
+                      recovery_codes_left: 10
+                      created_at: '2026-09-01T10:15:00Z'
+                      last_login_at: '2026-09-09T08:30:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/AccountDisabled'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Account]
+      operationId: updateMe
+      summary: Update the signed-in user's own profile fields.
+      description: |
+        Only the keys present in the body are written; an empty body is a 400.
+        `metadata` is the user-owned bag — the developer-owned `app_metadata` is
+        read-only here and is written from the management plane.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMeRequest'
+            example:
+              name: Sample User
+              avatar_url: https://cdn.example.com/avatars/sample.png
+              metadata:
+                locale: fr
+      responses:
+        '200':
+          description: The updated profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserEnvelope'
+              examples:
+                success:
+                  value:
+                    user:
+                      id: 3f7c2b90-5e1a-4f2b-9c3d-8a1b2c3d4e5f
+                      email: user@example.com
+                      name: Sample User
+                      avatar_url: https://cdn.example.com/avatars/sample.png
+                      email_verified: true
+                      provider: email
+                      totp_enabled: false
+                      whatsapp_otp_enabled: false
+                      recovery_codes_left: 0
+                      created_at: '2026-09-01T10:15:00Z'
+                      last_login_at: '2026-09-09T08:30:00Z'
+        '400':
+          description: Malformed body, no updatable field, or a value over its length limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: no fields to update
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/AccountDisabled'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Account]
+      operationId: deleteMe
+      summary: Delete the signed-in user's account.
+      description: |
+        Email accounts must confirm with the current password; accounts created
+        through an OAuth provider have no password and send an empty body.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteMeRequest'
+            example:
+              password: s3cret-passphrase
+      responses:
+        '200':
+          description: The account and its tokens are gone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              examples:
+                success:
+                  value:
+                    message: account deleted
+        '400':
+          description: An email account sent no password.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: password confirmation required
+        '401':
+          description: Wrong password, or no valid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_credentials:
+                  value:
+                    error: incorrect password
+                unauthorized:
+                  value:
+                    error: missing or invalid Authorization header
+        '403':
+          $ref: '#/components/responses/AccountDisabled'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/change-password:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [Account]
+      operationId: changePassword
+      summary: Change the signed-in user's password.
+      description: Every refresh token of the account is revoked, forcing re-login everywhere.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+            example:
+              current_password: s3cret-passphrase
+              new_password: new-s3cret-passphrase
+      responses:
+        '200':
+          description: The password is changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              examples:
+                success:
+                  value:
+                    message: password changed successfully
+        '400':
+          description: Malformed body, an account without a password, or an unchanged password.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: password change is only available for email-based accounts
+        '401':
+          description: Wrong current password, or no valid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_credentials:
+                  value:
+                    error: current password is incorrect
+                unauthorized:
+                  value:
+                    error: missing or invalid Authorization header
+        '403':
+          $ref: '#/components/responses/AccountDisabled'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/forgot-password:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [Password]
+      operationId: forgotPassword
+      summary: Send a password-reset link.
+      description: |
+        Answers 200 whether or not the address is registered, so the endpoint cannot
+        be used to enumerate accounts. The email links to the app's own reset page
+        when one is configured, otherwise to the hosted form at GET /reset-password.
+      parameters:
+        - $ref: '#/components/parameters/serverKey'
+        - $ref: '#/components/parameters/clientIP'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+            example:
+              email: user@example.com
+      responses:
+        '200':
+          description: Accepted; an email was sent if the account exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              examples:
+                success:
+                  value:
+                    message: if an account exists with that email, a reset link has been sent
+        '400':
+          description: Malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: email required
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/reset-password:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [Password]
+      operationId: resetPassword
+      summary: Set a new password with an emailed reset token.
+      description: The token is consumed and every refresh token of the account is revoked.
+      parameters:
+        - $ref: '#/components/parameters/serverKey'
+        - $ref: '#/components/parameters/clientIP'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+            example:
+              token: 5e1f0a7c9d24...
+              password: new-s3cret-passphrase
+      responses:
+        '200':
+          description: The password is set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              examples:
+                success:
+                  value:
+                    message: password reset successfully, please log in
+        '400':
+          description: Malformed body, or a token that is unknown, expired or already used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: token and password (min 8 chars) required
+                invalid_grant:
+                  value:
+                    error: invalid or expired reset token
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    get:
+      tags: [Browser flows]
+      operationId: resetPasswordForm
+      summary: Hosted password-reset page.
+      description: |
+        The page the emailed link opens when the app has no `reset_url` of its own.
+        It posts back to POST /reset-password. Not an SDK call.
+      parameters:
+        - name: token
+          in: query
+          required: true
+          description: The token from the reset email.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The reset form.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                success:
+                  value: "<!DOCTYPE html>\n<html><head><title>Reset your password</title></head>...</html>"
+        '400':
+          description: |
+            No token (plain text), or a token that is unknown or expired (an HTML
+            error page).
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                invalid_grant:
+                  value: "<!DOCTYPE html>\n<html><head><title>Link Expired</title></head>...</html>"
+                invalid_request:
+                  value: Missing token
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/verify-reset-token:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [Password]
+      operationId: verifyResetToken
+      summary: Pre-check a reset token without consuming it.
+      description: |
+        Lets a custom reset page show "link expired" before asking for a new password.
+        The account email comes back for display: the caller already holds the emailed
+        link, so nothing new is revealed.
+      parameters:
+        - $ref: '#/components/parameters/serverKey'
+        - $ref: '#/components/parameters/clientIP'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyResetTokenRequest'
+            example:
+              token: 5e1f0a7c9d24...
+      responses:
+        '200':
+          description: The token is still usable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResetTokenValidity'
+              examples:
+                success:
+                  value:
+                    valid: true
+                    email: user@example.com
+        '400':
+          description: Malformed body, or a token that is unknown, expired or already used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: token required
+                invalid_grant:
+                  value:
+                    error: invalid or expired reset token
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/verify-email:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    get:
+      tags: [Browser flows]
+      operationId: verifyEmail
+      summary: Confirm an email address from the emailed link.
+      description: |
+        Renders an HTML page rather than redirecting. The token is single-use, so a
+        second visit renders the invalid-link page. Not an SDK call.
+      parameters:
+        - name: token
+          in: query
+          required: true
+          description: The token from the verification email.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The address is verified.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                success:
+                  value: "<!DOCTYPE html>\n<html><head><title>Email Verified!</title></head>...</html>"
+        '400':
+          description: |
+            No token at all (a JSON error), or a token that is unknown, expired or
+            already used (an HTML error page).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: token required
+            text/html:
+              schema:
+                type: string
+              examples:
+                invalid_grant:
+                  value: "<!DOCTYPE html>\n<html><head><title>Link Expired</title></head>...</html>"
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/resend-verification:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [Email]
+      operationId: resendVerification
+      summary: Send the verification email again.
+      description: |
+        Public — no access token. Answers 200 whether or not the address is
+        registered, and sends nothing when it is already verified.
+      parameters:
+        - $ref: '#/components/parameters/serverKey'
+        - $ref: '#/components/parameters/clientIP'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResendVerificationRequest'
+            example:
+              email: user@example.com
+      responses:
+        '200':
+          description: Accepted; an email was sent if one was needed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              examples:
+                success:
+                  value:
+                    message: if an account exists with that email, a verification link has been sent
+        '400':
+          description: Malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: valid email required
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/email/change-request:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [Email]
+      operationId: requestEmailChange
+      summary: Start changing the signed-in user's email address.
+      description: |
+        Emails a confirmation link to the new address and a notice to the old one.
+        Only one request is live at a time — starting a new one voids the previous
+        link. Accounts signed in through an OAuth provider cannot change their email
+        here.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestEmailChangeRequest'
+            example:
+              new_email: new-address@example.com
+              current_password: s3cret-passphrase
+      responses:
+        '200':
+          description: The confirmation email is on its way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailChangeResponse'
+              examples:
+                success:
+                  value:
+                    message: check your new email to confirm the change
+                    expires_at: '2026-09-09T09:30:00Z'
+        '400':
+          description: |
+            Malformed body, an OAuth-provider account, an unchanged address, or a
+            target address that cannot be used (the message stays generic so the
+            endpoint cannot be used to enumerate accounts).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: new_email and current_password required
+                conflict:
+                  value:
+                    error: could not start email change
+        '401':
+          description: Wrong current password, or no valid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_credentials:
+                  value:
+                    error: current password is incorrect
+                unauthorized:
+                  value:
+                    error: missing or invalid Authorization header
+        '403':
+          $ref: '#/components/responses/AccountDisabled'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Email]
+      operationId: cancelEmailChange
+      summary: Void any pending email change.
+      description: Answers 200 even when nothing was pending.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: No email-change link is live any more.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              examples:
+                success:
+                  value:
+                    message: pending email change cancelled
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/AccountDisabled'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/email/change-confirm:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    get:
+      tags: [Browser flows]
+      operationId: confirmEmailChange
+      summary: Confirm an email change from the emailed link.
+      description: |
+        Public on purpose: the user may open the link on the new-email device while
+        signed out, so the token is the only credential. Renders HTML, marks the new
+        address verified, and revokes every refresh token of the account. Not an SDK
+        call.
+      parameters:
+        - name: token
+          in: query
+          required: true
+          description: The token from the confirmation email.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The address is changed; the user must sign in again.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                success:
+                  value: "<!DOCTYPE html>\n<html><head><title>Email Updated</title></head>...</html>"
+        '400':
+          description: No token, or a token that is unknown, expired or already used.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                invalid_grant:
+                  value: "<!DOCTYPE html>\n<html><head><title>Invalid or Expired Link</title></head>...</html>"
+        '409':
+          description: Another account took the address while the link was pending.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                conflict:
+                  value: "<!DOCTYPE html>\n<html><head><title>Email Already in Use</title></head>...</html>"
+        '429':
+          description: Too many attempts from this address. Carries Retry-After like every other 429, but the body is the human page.
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                rate_limited:
+                  value: "<!DOCTYPE html>\n<html><head><title>Too Many Attempts</title></head>...</html>"
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/2fa/verify:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [Two-factor]
+      operationId: verifyTwoFA
+      summary: Finish a login that asked for a second factor.
+      description: |
+        Spends the `challenge_token` from the login response together with a TOTP
+        code or a recovery code. Five wrong codes burn the challenge and login
+        restarts from the password.
+      parameters:
+        - $ref: '#/components/parameters/serverKey'
+        - $ref: '#/components/parameters/clientIP'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TwoFAVerifyRequest'
+            example:
+              challenge_token: 4c1d8ab2e3f5...
+              code: '123456'
+      responses:
+        '200':
+          description: The session the password step withheld.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+              examples:
+                success:
+                  value:
+                    access_token: eyJhbGciOiJSUzI1NiIsImtpZCI6Im15LWFwcC12MSJ9...
+                    refresh_token: 9f8e7d6c5b4a...
+                    expires_in: 900
+                    token_type: Bearer
+                    user:
+                      id: 3f7c2b90-5e1a-4f2b-9c3d-8a1b2c3d4e5f
+                      email: user@example.com
+                      name: Sample User
+                      email_verified: true
+                      provider: email
+                      totp_enabled: true
+                      whatsapp_otp_enabled: false
+                      recovery_codes_left: 9
+                      created_at: '2026-09-01T10:15:00Z'
+                      last_login_at: '2026-09-09T08:30:00Z'
+        '400':
+          description: Malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: challenge_token and code required
+        '401':
+          description: The challenge is unknown, expired or spent, or the code is wrong.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_grant:
+                  value:
+                    error: invalid or expired challenge
+                invalid_credentials:
+                  value:
+                    error: invalid code
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/2fa/totp/enroll:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [Two-factor]
+      operationId: enrollTotp
+      summary: Mint a TOTP secret for the caller.
+      description: |
+        Authenticates two ways: an ordinary access token (voluntary enrolment), or the
+        `enroll_token` from a login under an enforced policy — that token authorises
+        enrolment and nothing else. The plaintext secret is returned exactly once;
+        at rest it exists only encrypted. Confirm it at POST /2fa/totp/confirm.
+      security:
+        - bearerAuth: []
+        - {}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TotpEnrollRequest'
+            example:
+              enroll_token: 7b2e9c40a1d6...
+      responses:
+        '200':
+          description: The secret and the otpauth URI to render as a QR code.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TotpEnrollment'
+              examples:
+                success:
+                  value:
+                    secret: JBSWY3DPEHPK3PXP
+                    otpauth_uri: otpauth://totp/My%20App:user%40example.com?algorithm=SHA1&digits=6&issuer=My+App&period=30&secret=JBSWY3DPEHPK3PXP
+        '401':
+          description: Neither a valid access token nor a valid enrolment token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                unauthorized:
+                  value:
+                    error: not authenticated
+        '409':
+          description: TOTP is already enrolled for this user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                conflict:
+                  value:
+                    error: TOTP already enrolled — disable it first
+        '404':
+          description: Unknown app slug, or an app that does not offer TOTP.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not_found:
+                  value:
+                    error: auth app not found
+                disabled:
+                  value:
+                    error: not found
+
+  /v1/{appSlug}/2fa/totp/confirm:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [Two-factor]
+      operationId: confirmTotp
+      summary: Prove the authenticator works and turn TOTP on.
+      description: |
+        Returns the recovery codes — the only time they are ever shown. On the
+        enforced-enrolment path the same response also completes the login, so it
+        carries the session fields as well.
+      security:
+        - bearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TotpConfirmRequest'
+            example:
+              code: '123456'
+              enroll_token: 7b2e9c40a1d6...
+      responses:
+        '200':
+          description: TOTP is on.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TotpConfirmation'
+              examples:
+                success:
+                  summary: Voluntary enrolment.
+                  value:
+                    enabled: true
+                    recovery_codes: [K7T2M-9BQXR, 4WD8N-YH3ZC, R5PJ6-T1XVA]
+                success_forced_enrollment:
+                  summary: Enforced enrolment — the login completes in the same round-trip.
+                  value:
+                    enabled: true
+                    recovery_codes: [K7T2M-9BQXR, 4WD8N-YH3ZC, R5PJ6-T1XVA]
+                    access_token: eyJhbGciOiJSUzI1NiIsImtpZCI6Im15LWFwcC12MSJ9...
+                    refresh_token: 9f8e7d6c5b4a...
+                    expires_in: 900
+                    token_type: Bearer
+                    user:
+                      id: 3f7c2b90-5e1a-4f2b-9c3d-8a1b2c3d4e5f
+                      email: user@example.com
+                      name: Sample User
+                      email_verified: true
+                      provider: email
+                      totp_enabled: true
+                      whatsapp_otp_enabled: false
+                      recovery_codes_left: 10
+                      created_at: '2026-09-01T10:15:00Z'
+        '400':
+          description: Malformed body, or no secret waiting to be confirmed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: no pending TOTP enrolment
+        '401':
+          description: Wrong code, or neither a valid access token nor a valid enrolment token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_credentials:
+                  value:
+                    error: invalid code
+                unauthorized:
+                  value:
+                    error: not authenticated
+        '404':
+          description: Unknown app slug, or an app that does not offer TOTP.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not_found:
+                  value:
+                    error: auth app not found
+                disabled:
+                  value:
+                    error: not found
+
+  /v1/{appSlug}/2fa/disable:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [Two-factor]
+      operationId: disableTwoFA
+      summary: Turn the second factor off.
+      description: Clears the secret, the recovery codes and the enrolment stamp.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TwoFAPasswordCodeRequest'
+            example:
+              password: s3cret-passphrase
+              code: '123456'
+      responses:
+        '200':
+          description: The second factor is gone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              examples:
+                success:
+                  value:
+                    message: 2FA disabled
+        '400':
+          description: Malformed body, or no second factor to disable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: 2FA is not enabled
+        '401':
+          description: Wrong password or wrong code (one message for both), or no valid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_credentials:
+                  value:
+                    error: invalid password or code
+                unauthorized:
+                  value:
+                    error: missing or invalid Authorization header
+        '403':
+          $ref: '#/components/responses/AccountDisabled'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/2fa/recovery/regenerate:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [Two-factor]
+      operationId: regenerateRecoveryCodes
+      summary: Replace the recovery codes with a fresh set.
+      description: Every previous code stops working.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TwoFAPasswordCodeRequest'
+            example:
+              password: s3cret-passphrase
+              code: '123456'
+      responses:
+        '200':
+          description: The new codes, shown once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecoveryCodes'
+              examples:
+                success:
+                  value:
+                    recovery_codes: [K7T2M-9BQXR, 4WD8N-YH3ZC, R5PJ6-T1XVA]
+        '400':
+          description: Malformed body, or no second factor enrolled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: 2FA is not enabled
+        '401':
+          description: Wrong password or wrong code (one message for both), or no valid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_credentials:
+                  value:
+                    error: invalid password or code
+                unauthorized:
+                  value:
+                    error: missing or invalid Authorization header
+        '403':
+          $ref: '#/components/responses/AccountDisabled'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/auth/google:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    get:
+      tags: [OAuth]
+      operationId: startGoogleOAuth
+      summary: Start Google sign-in.
+      description: |
+        Redirects the browser to Google. The provider must be enabled for the app and
+        `redirect_uri` must match one of the app's allowed origins. The service comes
+        back to GET /callback/google and from there to `redirect_uri`.
+      parameters:
+        - name: redirect_uri
+          in: query
+          required: true
+          description: Where to send the browser once sign-in finishes. Must match an allowed origin of the app.
+          schema:
+            type: string
+            example: https://app.example.com/auth/callback
+        - name: code_challenge
+          in: query
+          required: false
+          description: |
+            PKCE challenge, base64url(sha256(verifier)). When present the redirect
+            carries a one-time `code` query parameter instead of tokens in the
+            fragment; spend it at POST /oauth/exchange.
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9._~-]{43,128}$'
+        - name: code_challenge_method
+          in: query
+          required: false
+          description: Only S256. Defaults to S256 when a challenge is present.
+          schema:
+            type: string
+            enum: [S256]
+      responses:
+        '307':
+          description: Redirect to Google's consent screen.
+          headers:
+            Location:
+              description: The provider's authorization URL, carrying the app's client id and a single-use state.
+              schema:
+                type: string
+              example: https://accounts.google.com/o/oauth2/v2/auth?client_id=...&state=...
+        '400':
+          description: The provider is off for this app, unconfigured, or `redirect_uri` is missing or not allowed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: redirect_uri not in allowed origins
+                disabled:
+                  value:
+                    error: Google sign-in is disabled for this app
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/auth/github:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    get:
+      tags: [OAuth]
+      operationId: startGitHubOAuth
+      summary: Start GitHub sign-in.
+      description: |
+        Same shape as Google sign-in. The provider must be enabled for the app and
+        `redirect_uri` must match one of the app's allowed origins.
+      parameters:
+        - name: redirect_uri
+          in: query
+          required: true
+          description: Where to send the browser once sign-in finishes. Must match an allowed origin of the app.
+          schema:
+            type: string
+            example: https://app.example.com/auth/callback
+        - name: code_challenge
+          in: query
+          required: false
+          description: |
+            PKCE challenge, base64url(sha256(verifier)). When present the redirect
+            carries a one-time `code` query parameter instead of tokens in the
+            fragment; spend it at POST /oauth/exchange.
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9._~-]{43,128}$'
+        - name: code_challenge_method
+          in: query
+          required: false
+          description: Only S256. Defaults to S256 when a challenge is present.
+          schema:
+            type: string
+            enum: [S256]
+      responses:
+        '307':
+          description: Redirect to GitHub's consent screen.
+          headers:
+            Location:
+              description: The provider's authorization URL, carrying the app's client id and a single-use state.
+              schema:
+                type: string
+              example: https://github.com/login/oauth/authorize?client_id=...&state=...
+        '400':
+          description: The provider is off for this app, unconfigured, or `redirect_uri` is missing or not allowed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: redirect_uri not in allowed origins
+                disabled:
+                  value:
+                    error: GitHub sign-in is disabled for this app
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/callback/google:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    get:
+      tags: [Browser flows]
+      operationId: googleOAuthCallback
+      summary: Provider callback for Google sign-in.
+      description: |
+        Called by Google, never by an app. Upserts the user and redirects to the
+        `redirect_uri` the flow started with, carrying the session in the URL
+        fragment (`#access_token=…&refresh_token=…&expires_in=…&token_type=Bearer`).
+        Failures redirect to the same URI with `#error=…`. Once the mobile OAuth
+        change ships, a flow started with a `code_challenge` instead receives a
+        one-time `?code=…` query parameter and no tokens.
+      x-internal: true
+      parameters:
+        - name: code
+          in: query
+          required: true
+          description: The provider's authorization code.
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          description: The single-use state minted at GET /auth/google.
+          schema:
+            type: string
+      responses:
+        '307':
+          description: Redirect back to the app.
+          headers:
+            Location:
+              description: The app's redirect_uri with the session in the fragment, or with an error.
+              schema:
+                type: string
+              example: https://app.example.com/auth/callback#access_token=eyJ...&refresh_token=9f8e...&expires_in=900&token_type=Bearer
+        '400':
+          description: The provider reported an error, the state is unknown or expired, or the provider is off for this app.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_grant:
+                  value:
+                    error: invalid or expired OAuth state — please try again
+                invalid_request:
+                  value:
+                    error: missing code or state parameter
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/callback/github:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    get:
+      tags: [Browser flows]
+      operationId: githubOAuthCallback
+      summary: Provider callback for GitHub sign-in.
+      description: |
+        Called by GitHub, never by an app. Same redirect contract as the Google
+        callback, including the fragment shape and the `#error=…` failure path.
+      x-internal: true
+      parameters:
+        - name: code
+          in: query
+          required: true
+          description: The provider's authorization code.
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          description: The single-use state minted at GET /auth/github.
+          schema:
+            type: string
+      responses:
+        '307':
+          description: Redirect back to the app.
+          headers:
+            Location:
+              description: The app's redirect_uri with the session in the fragment, or with an error.
+              schema:
+                type: string
+              example: https://app.example.com/auth/callback#access_token=eyJ...&refresh_token=9f8e...&expires_in=900&token_type=Bearer
+        '400':
+          description: The provider reported an error, the state is unknown or expired, or the provider is off for this app.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_grant:
+                  value:
+                    error: invalid or expired OAuth state — please try again
+                invalid_request:
+                  value:
+                    error: missing code or state parameter
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/oauth/exchange:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [OAuth]
+      operationId: exchangeOAuthCode
+      summary: Exchange a PKCE one-time code for a session.
+      description: |
+        The mobile half of OAuth: a redirect started with a `code_challenge` hands the
+        app a one-time `code` (120 s, single use) instead of tokens, so no token ever
+        travels through the OS URL handler. The code is bound to the challenge and to
+        this app.
+      parameters:
+        - $ref: '#/components/parameters/serverKey'
+        - $ref: '#/components/parameters/clientIP'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthExchangeRequest'
+            example:
+              code: 6d3b17f0c94a...
+              code_verifier: dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk
+      responses:
+        '200':
+          description: The same body as a successful login.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+              examples:
+                success:
+                  value:
+                    access_token: eyJhbGciOiJSUzI1NiIsImtpZCI6Im15LWFwcC12MSJ9...
+                    refresh_token: 9f8e7d6c5b4a...
+                    expires_in: 900
+                    token_type: Bearer
+                    user:
+                      id: 3f7c2b90-5e1a-4f2b-9c3d-8a1b2c3d4e5f
+                      email: user@example.com
+                      name: Sample User
+                      email_verified: true
+                      provider: google
+                      totp_enabled: false
+                      whatsapp_otp_enabled: false
+                      recovery_codes_left: 0
+                      created_at: '2026-09-01T10:15:00Z'
+                      last_login_at: '2026-09-09T08:30:00Z'
+        '400':
+          description: Malformed body, or a code that is unknown, expired, already spent, for another app, or does not match the verifier.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: code and code_verifier required
+                    code: invalid_request
+                invalid_grant:
+                  value:
+                    error: invalid or expired code
+                    code: invalid_grant
+        '403':
+          description: The account behind the code is disabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                disabled:
+                  value:
+                    error: Account is disabled
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/oauth/id-token:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    post:
+      tags: [OAuth]
+      operationId: signInWithIdToken
+      summary: Sign in with a provider ID token obtained natively.
+      description: |
+        For native sign-in on iOS and Android, where the platform hands the app an ID
+        token and no browser is involved. The token is verified against the provider's
+        JWKS and against the app's registered client ids — its web client id plus the
+        native client ids configured in the console. `nonce`, when sent, must match the
+        token's claim.
+      parameters:
+        - $ref: '#/components/parameters/serverKey'
+        - $ref: '#/components/parameters/clientIP'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthIDTokenRequest'
+            example:
+              provider: google
+              id_token: eyJhbGciOiJSUzI1NiIsImtpZCI6IjFhMmIzYyJ9...
+              nonce: 7f3a1c9e0b52
+      responses:
+        '200':
+          description: The same body as a successful login.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+              examples:
+                success:
+                  value:
+                    access_token: eyJhbGciOiJSUzI1NiIsImtpZCI6Im15LWFwcC12MSJ9...
+                    refresh_token: 9f8e7d6c5b4a...
+                    expires_in: 900
+                    token_type: Bearer
+                    user:
+                      id: 3f7c2b90-5e1a-4f2b-9c3d-8a1b2c3d4e5f
+                      email: user@example.com
+                      name: Sample User
+                      email_verified: true
+                      provider: google
+                      totp_enabled: false
+                      whatsapp_otp_enabled: false
+                      recovery_codes_left: 0
+                      created_at: '2026-09-01T10:15:00Z'
+                      last_login_at: '2026-09-09T08:30:00Z'
+        '400':
+          description: Unsupported provider, a provider that is off for this app, or a token with no email claim.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  value:
+                    error: unsupported provider
+                    code: invalid_request
+                disabled:
+                  value:
+                    error: Google sign-in is disabled for this app
+        '401':
+          description: The ID token failed verification. The reason is logged, never returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_token:
+                  value:
+                    error: invalid id token
+                    code: invalid_token
+        '403':
+          description: The app is at the user cap of its capacity bracket, or the account is disabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: User limit reached for this application
+                disabled:
+                  value:
+                    error: Account is disabled
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/{appSlug}/.well-known/jwks.json:
+    parameters:
+      - $ref: '#/components/parameters/appSlug'
+    get:
+      tags: [Keys]
+      operationId: jwks
+      summary: Public signing keys of this app.
+      description: |
+        Verify access tokens against this set. The `kid` carries the app's key
+        generation, so a rotation changes it and a cached key set misses — which is
+        the signal every JWKS client uses to re-fetch.
+      responses:
+        '200':
+          description: The app's current public key.
+          headers:
+            Cache-Control:
+              description: Public, one hour.
+              schema:
+                type: string
+              example: public, max-age=3600
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWKS'
+              examples:
+                success:
+                  value:
+                    keys:
+                      - kty: RSA
+                        kid: my-app-v1
+                        use: sig
+                        alg: RS256
+                        n: sXchDaQebHnPiGvyDOAT4saGEUetSyo9MKLOoWFsueri23bOdgWp4Dy1Wl...
+                        e: AQAB
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  parameters:
+    appSlug:
+      name: appSlug
+      in: path
+      required: true
+      description: Auth app slug (`app_id`).
+      schema:
+        type: string
+        example: my-app
+    serverKey:
+      name: X-Ghayma-Server-Key
+      in: header
+      required: false
+      description: Per-app server key; must be sent together with X-Ghayma-Client-IP.
+      schema:
+        type: string
+    clientIP:
+      name: X-Ghayma-Client-IP
+      in: header
+      required: false
+      description: Real end-user IP forwarded by a trusted server; honoured only with a valid server key.
+      schema:
+        type: string
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  headers:
+    RetryAfter:
+      description: Seconds until the tripped limit resets.
+      schema:
+        type: integer
+  responses:
+    RateLimited:
+      description: Too many requests for this client or app.
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            rate_limited:
+              value:
+                error: too many requests, please try again later
+                code: rate_limited
+    NotFound:
+      description: Unknown app slug.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            not_found:
+              value:
+                error: auth app not found
+    Unauthorized:
+      description: |
+        No usable access token. The message names the reason: a missing or malformed
+        `Authorization` header, an expired or unverifiable token, claims without a
+        subject, or a user that no longer exists.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            unauthorized:
+              value:
+                error: missing or invalid Authorization header
+    AccountDisabled:
+      description: The token is valid but the account has been disabled.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            disabled:
+              value:
+                error: account is disabled
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          description: Machine-readable reason, present on newer endpoints.
+    Message:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+    User:
+      type: object
+      description: An end user of the auth app, as the service renders it.
+      required:
+        - id
+        - email
+        - name
+        - email_verified
+        - provider
+        - totp_enabled
+        - whatsapp_otp_enabled
+        - recovery_codes_left
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+          description: Empty string when the account has no name.
+        avatar_url:
+          type: string
+          description: Omitted when empty.
+        email_verified:
+          type: boolean
+        provider:
+          type: string
+          enum: [email, google, github]
+        metadata:
+          type: object
+          additionalProperties: true
+          description: |
+            User-owned bag. Accepted by PATCH /me and carried in the access token as
+            the `user_metadata` claim, but never rendered in this object — read it
+            from the token.
+        app_metadata:
+          type: object
+          additionalProperties: true
+          description: |
+            Developer-owned bag (roles, plan, tenant id) written from the management
+            plane and embedded in the access token. Omitted when empty.
+        totp_enabled:
+          type: boolean
+        whatsapp_otp_enabled:
+          type: boolean
+          description: Always false — the WhatsApp factor is not offered.
+        recovery_codes_left:
+          type: integer
+          description: How many single-use recovery codes are still unspent.
+        created_at:
+          type: string
+          format: date-time
+        last_login_at:
+          type: string
+          format: date-time
+          description: Omitted until the first successful sign-in.
+    UserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+    TokenPair:
+      type: object
+      required: [access_token, refresh_token, expires_in, token_type]
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        expires_in: { type: integer, description: Access-token lifetime in seconds }
+        token_type: { type: string, example: Bearer }
+    Session:
+      allOf:
+        - $ref: '#/components/schemas/TokenPair'
+        - type: object
+          required: [user]
+          properties:
+            user:
+              $ref: '#/components/schemas/User'
+    PendingVerification:
+      type: object
+      description: Registration answer when the app requires a verified email; no tokens are issued.
+      required: [message, user]
+      properties:
+        message:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+    TwoFARequired:
+      type: object
+      description: The password verified but the user holds a second factor.
+      required: [two_fa_required, challenge_token, methods, phone_hint]
+      properties:
+        two_fa_required:
+          type: boolean
+          enum: [true]
+        challenge_token:
+          type: string
+          description: Single-use, expiring; spend it at POST /2fa/verify.
+        methods:
+          type: array
+          items:
+            type: string
+            enum: [totp, whatsapp]
+        phone_hint:
+          type: string
+          description: Masked phone for the WhatsApp factor; empty string when there is none.
+    TwoFAEnrollmentRequired:
+      type: object
+      description: The app enforces 2FA and this user is not enrolled yet.
+      required: [two_fa_enrollment_required, enroll_token, methods]
+      properties:
+        two_fa_enrollment_required:
+          type: boolean
+          enum: [true]
+        enroll_token:
+          type: string
+          description: Authorises enrolment only; spend it at POST /2fa/totp/enroll and /2fa/totp/confirm.
+        methods:
+          type: array
+          items:
+            type: string
+            enum: [totp, whatsapp]
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+        name:
+          type: string
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+    UpdateMeRequest:
+      type: object
+      description: Send only the fields to change; at least one is required.
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        avatar_url:
+          type: string
+          maxLength: 500
+        metadata:
+          type: object
+          additionalProperties: true
+    DeleteMeRequest:
+      type: object
+      description: Required for email accounts; OAuth accounts send an empty body.
+      properties:
+        password:
+          type: string
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+          minLength: 8
+          maxLength: 128
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+    ResetPasswordRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token:
+          type: string
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+    VerifyResetTokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    ResetTokenValidity:
+      type: object
+      required: [valid, email]
+      properties:
+        valid:
+          type: boolean
+          enum: [true]
+        email:
+          type: string
+          format: email
+          description: The address the reset link belongs to, for display on a custom page.
+    ResendVerificationRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+    RequestEmailChangeRequest:
+      type: object
+      required: [new_email, current_password]
+      properties:
+        new_email:
+          type: string
+          format: email
+        current_password:
+          type: string
+    EmailChangeResponse:
+      type: object
+      required: [message, expires_at]
+      properties:
+        message:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          description: When the confirmation link stops working (one hour after the request).
+    TwoFAVerifyRequest:
+      type: object
+      required: [challenge_token, code]
+      properties:
+        challenge_token:
+          type: string
+        code:
+          type: string
+          description: A TOTP code or one of the recovery codes.
+    TotpEnrollRequest:
+      type: object
+      description: Send `enroll_token` when enrolling from an enforced login; omit it when a bearer token is present.
+      properties:
+        enroll_token:
+          type: string
+    TotpEnrollment:
+      type: object
+      required: [secret, otpauth_uri]
+      properties:
+        secret:
+          type: string
+          description: Base32 secret to type into an authenticator by hand.
+        otpauth_uri:
+          type: string
+          description: The same secret as an otpauth:// URI, to render as a QR code.
+    TotpConfirmRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+        enroll_token:
+          type: string
+    TotpConfirmation:
+      type: object
+      description: |
+        `recovery_codes` is present only when a set was minted (first enrolment, or a
+        re-enrolment after disable). The session fields are present only on the
+        enforced-enrolment path, which completes the login here.
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+          enum: [true]
+        recovery_codes:
+          type: array
+          items:
+            type: string
+        access_token: { type: string }
+        refresh_token: { type: string }
+        expires_in: { type: integer }
+        token_type: { type: string }
+        user:
+          $ref: '#/components/schemas/User'
+    TwoFAPasswordCodeRequest:
+      type: object
+      required: [password, code]
+      properties:
+        password:
+          type: string
+        code:
+          type: string
+          description: A TOTP code or one of the recovery codes.
+    RecoveryCodes:
+      type: object
+      required: [recovery_codes]
+      properties:
+        recovery_codes:
+          type: array
+          items:
+            type: string
+    OAuthExchangeRequest:
+      type: object
+      required: [code, code_verifier]
+      properties:
+        code:
+          type: string
+          description: The one-time code the redirect carried.
+        code_verifier:
+          type: string
+          pattern: '^[A-Za-z0-9._~-]{43,128}$'
+          description: The verifier the challenge was derived from.
+    OAuthIDTokenRequest:
+      type: object
+      required: [provider, id_token]
+      properties:
+        provider:
+          type: string
+          enum: [google]
+          description: Apple joins this list once the platform supports it.
+        id_token:
+          type: string
+        nonce:
+          type: string
+          description: When present, must equal the token's nonce claim.
+    JWKS:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/JWK'
+    JWK:
+      type: object
+      required: [kty, kid, use, alg, n, e]
+      properties:
+        kty: { type: string, enum: [RSA] }
+        kid: { type: string, description: '`<app slug>-v<key version>`.' }
+        use: { type: string, enum: [sig] }
+        alg: { type: string, enum: [RS256] }
+        n: { type: string, description: 'Modulus, base64url.' }
+        e: { type: string, description: 'Exponent, base64url.' }

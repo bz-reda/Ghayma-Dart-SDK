@@ -1,0 +1,11 @@
+# Replaces .gitignore for the published archive, so repeat its entries here.
+.dart_tool/
+.packages
+build/
+pubspec.lock
+doc/api/
+coverage/
+.superpowers/
+
+# Repo-only: the implementation plan is not package content.
+docs/
