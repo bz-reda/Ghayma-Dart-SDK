@@ -996,9 +996,10 @@ paths:
       operationId: verifyTwoFA
       summary: Finish a login that asked for a second factor.
       description: |
-        Spends the `challenge_token` from the login response together with a TOTP
-        code or a recovery code. Five wrong codes burn the challenge and login
-        restarts from the password.
+        Spends the `challenge_token` from a login or OAuth sign-in response together
+        with a TOTP code or a recovery code. Every attempt takes one of the
+        challenge's five tries; once they are gone, or the challenge has been
+        spent, the sign-in starts over.
       parameters:
         - $ref: '#/components/parameters/serverKey'
         - $ref: '#/components/parameters/clientIP'
@@ -1481,8 +1482,9 @@ paths:
         `#two_fa_required=true&challenge_token=…&methods=totp` (finish at POST
         /2fa/verify) or `#two_fa_enrollment_required=true&enroll_token=…&methods=totp`
         (enrol with the token) — and a PKCE flow meets the same step at POST
-        /oauth/exchange. An email the provider has not verified is refused with an
-        error redirect.
+        /oauth/exchange. An email the provider has not verified, or an existing
+        password account whose email was never verified, is refused with an error
+        redirect.
       x-internal: true
       parameters:
         - name: code
@@ -1502,7 +1504,7 @@ paths:
           description: Redirect back to the app.
           headers:
             Location:
-              description: The app's redirect_uri with the session in the fragment, or with an error.
+              description: The app's redirect_uri with the session or a pending second-factor step in the fragment, or with an error.
               schema:
                 type: string
               example: https://app.example.com/auth/callback#access_token=eyJ...&refresh_token=9f8e...&expires_in=900&token_type=Bearer
@@ -1551,7 +1553,7 @@ paths:
           description: Redirect back to the app.
           headers:
             Location:
-              description: The app's redirect_uri with the session in the fragment, or with an error.
+              description: The app's redirect_uri with the session or a pending second-factor step in the fragment, or with an error.
               schema:
                 type: string
               example: https://app.example.com/auth/callback#access_token=eyJ...&refresh_token=9f8e...&expires_in=900&token_type=Bearer
@@ -1777,6 +1779,17 @@ paths:
                   value:
                     error: Your Google account's email address is not verified
                     code: email_not_verified
+        '409':
+          description: An account with this email exists, has a password, and has never verified its email address, so the Google identity is not linked into it. Sign in with the password and verify the email, or reset the password, then try again.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                account_email_unverified:
+                  value:
+                    error: An account with this email already exists and its email address is not verified. Sign in with your password and verify your email, or reset your password, then use Google again
+                    code: account_email_unverified
         '429':
           $ref: '#/components/responses/RateLimited'
         '404':
