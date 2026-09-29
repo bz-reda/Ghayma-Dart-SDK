@@ -212,6 +212,7 @@ and, on rate limits, `retryAfter` in seconds.
 | `invalid_grant` | a spent, expired or mismatched one-time code at `exchangeCode` |
 | `invalid_token` | a provider ID token that failed verification |
 | `email_not_verified` | a Google ID token for an address Google has not verified (403) |
+| `account_email_unverified` | a Google ID token for the address of a password account that never verified it (409): verify the email or reset the password first |
 | `rate_limited` | 429; read `retryAfter` |
 | `oauth_error` | the provider handed back `?error=` on the redirect |
 | `two_fa_required` | a `TwoFactorRequiredException`: an OAuth sign-in awaits a 2FA code (`status` 200) |
