@@ -3,7 +3,7 @@
 library;
 
 export 'src/client.dart' show GhaymaAuth;
-export 'src/errors.dart' show GhaymaAuthException;
+export 'src/errors.dart' show GhaymaAuthException, TwoFactorRequiredException;
 export 'src/models/login_result.dart'
     show LoginResult, LoginSuccess, TwoFaRequired, TwoFaEnrollmentRequired;
 export 'src/models/misc.dart'

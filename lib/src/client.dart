@@ -456,6 +456,9 @@ class GhaymaAuth {
   }
 
   /// Trades the one-time code from a PKCE redirect for a session.
+  ///
+  /// Throws [TwoFactorRequiredException] when the app's 2FA policy applies to
+  /// the user; nothing is stored.
   Future<Session> exchangeCode({
     required String code,
     required String codeVerifier,
@@ -463,14 +466,15 @@ class GhaymaAuth {
   }) async {
     final json = await _http.send('POST', '/oauth/exchange',
         options: options, body: {'code': code, 'code_verifier': codeVerifier});
-    final session = Session.fromJson(json);
-    await _setSession(session, AuthEvent.signedIn);
-    return session;
+    return _oauthSignIn(json);
   }
 
   /// Signs in with a provider ID token obtained natively on iOS or Android,
   /// with no browser involved. [nonce], when given, must match the token's
   /// claim.
+  ///
+  /// Throws [TwoFactorRequiredException] when the app's 2FA policy applies to
+  /// the user; nothing is stored.
   Future<Session> signInWithIdToken({
     OAuthProvider provider = OAuthProvider.google,
     required String idToken,
@@ -483,12 +487,19 @@ class GhaymaAuth {
       'id_token': idToken,
       if (nonce != null) 'nonce': nonce,
     });
-    final session = Session.fromJson(json);
-    await _setSession(session, AuthEvent.signedIn);
-    return session;
+    return _oauthSignIn(json);
   }
 
   // ==================== Internal ====================
+
+  /// OAuth sign-in answers with the bodies of [login]. A pending second
+  /// factor is thrown before anything is stored.
+  Future<Session> _oauthSignIn(Map<String, Object?> json) async {
+    final result = LoginResult.fromJson(json);
+    if (result is! LoginSuccess) throw TwoFactorRequiredException(result);
+    await _setSession(result.session, AuthEvent.signedIn);
+    return result.session;
+  }
 
   User _user(Map<String, Object?> json) {
     final user = json['user'];
