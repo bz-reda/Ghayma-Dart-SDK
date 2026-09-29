@@ -79,10 +79,14 @@ Future<void> registerAccount(
   }
 }
 
-/// Handles all three shapes a login can take.
 Future<void> signIn(GhaymaAuth auth, String email, String password) async {
   final result = await auth.login(email: email, password: password);
+  await finishSignIn(auth, result);
+}
 
+/// Handles all three shapes a sign-in can take. `login` returns them; the
+/// OAuth methods throw the pending two in a [TwoFactorRequiredException].
+Future<void> finishSignIn(GhaymaAuth auth, LoginResult result) async {
   switch (result) {
     case LoginSuccess(:final session):
       stdout.writeln('welcome back, ${session.user.name}');
@@ -120,10 +124,14 @@ Future<void> oauthFlow(GhaymaAuth auth) async {
   final code = prompt('the ?code= value from the redirect');
   if (code.isEmpty) return;
 
-  final session =
-      await auth.handleRedirect(Uri.parse('$redirectUri?code=$code'));
-  stdout.writeln('signed in as ${session.user.email} '
-      'via ${session.user.provider}');
+  try {
+    final session =
+        await auth.handleRedirect(Uri.parse('$redirectUri?code=$code'));
+    stdout.writeln('signed in as ${session.user.email} '
+        'via ${session.user.provider}');
+  } on TwoFactorRequiredException catch (e) {
+    await finishSignIn(auth, e.result);
+  }
 }
 
 /// Native sign-in: the platform SDK (google_sign_in on Flutter) hands the app
@@ -132,8 +140,12 @@ Future<void> idTokenFlow(GhaymaAuth auth) async {
   final idToken = prompt('Google ID token');
   if (idToken.isEmpty) return;
 
-  final session = await auth.signInWithIdToken(idToken: idToken);
-  stdout.writeln('signed in as ${session.user.email}');
+  try {
+    final session = await auth.signInWithIdToken(idToken: idToken);
+    stdout.writeln('signed in as ${session.user.email}');
+  } on TwoFactorRequiredException catch (e) {
+    await finishSignIn(auth, e.result);
+  }
 }
 
 String prompt(String label) {
