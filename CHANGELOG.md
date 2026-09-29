@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.0
+
+The auth service now applies an app's 2FA policy to OAuth sign-in, as it
+already did to `login`.
+
+- `exchangeCode`, `signInWithIdToken` and `handleRedirect` throw
+  `TwoFactorRequiredException` when a second factor is pending, and store no
+  session. It extends `GhaymaAuthException`: `code` is `two_fa_required` or
+  `two_fa_enrollment_required`, and `result` is the `TwoFaRequired` or
+  `TwoFaEnrollmentRequired` step `login` returns, finished with `verify2fa`,
+  or `enrollTotp` then `confirmTotp`. Signatures are unchanged.
+- `handleRedirect` forgets the remembered PKCE verifier once the service has
+  redeemed the code, a pending second factor included.
+- The vendored contract documents the pending bodies of `/oauth/exchange` and
+  `/oauth/id-token`, and the `403 email_not_verified` of `/oauth/id-token`.
+
+Upgrade before turning 2FA on for an app that signs in with OAuth: 0.1.0 reads
+a pending answer as a session with empty tokens.
+
 ## 0.1.0
 
 Initial release — a pure-Dart client for the Ghayma auth service, mirroring
