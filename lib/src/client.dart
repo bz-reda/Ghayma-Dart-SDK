@@ -426,9 +426,9 @@ class GhaymaAuth {
 
   /// Finishes a sign-in from the URI the provider redirected to.
   ///
-  /// Uses [codeVerifier] when given, else the one [startOAuth] remembered,
-  /// which it forgets once the service redeems the code, a pending second
-  /// factor included.
+  /// Uses [codeVerifier] when given, else the one [startOAuth] remembered. It
+  /// forgets that verifier once the service redeems the code, a pending second
+  /// factor included, and keeps it after a failure so the app can retry.
   ///
   /// Throws [GhaymaAuthException] 400 `oauth_error` when the redirect carries
   /// `?error=`, `invalid_request` when it carries no code, and `invalid_grant`

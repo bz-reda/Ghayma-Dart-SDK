@@ -11,8 +11,10 @@ already did to `login`.
   `two_fa_enrollment_required`, and `result` is the `TwoFaRequired` or
   `TwoFaEnrollmentRequired` step `login` returns, finished with `verify2fa`,
   or `enrollTotp` then `confirmTotp`. Signatures are unchanged.
-- `handleRedirect` forgets the remembered PKCE verifier once the service has
-  redeemed the code, a pending second factor included.
+- `handleRedirect` forgets the remembered PKCE verifier when the exchange
+  succeeds or answers with a pending second factor: the service has redeemed
+  the code either way. After a failure (`invalid_grant`, a network error, a
+  timeout) it keeps the verifier, so the app can retry.
 - The vendored contract documents the pending bodies of `/oauth/exchange` and
   `/oauth/id-token`, and the `403 email_not_verified` of `/oauth/id-token`.
 

@@ -227,6 +227,28 @@ void main() {
           {'code': 'def', 'code_verifier': start.codeVerifier});
     });
 
+    test('a failed exchange can be retried with the same redirect', () async {
+      final recorder = Recorder()
+        ..on('POST', '/v1/my-app/oauth/exchange', status: 400, json: {
+          'error': 'invalid or expired code',
+          'code': 'invalid_grant',
+        });
+      final auth = build(recorder);
+      addTearDown(auth.dispose);
+      final redirect = Uri.parse('$_redirect?code=abc');
+
+      final start =
+          await auth.startOAuth(OAuthProvider.google, redirectUri: _redirect);
+      await expectLater(
+          auth.handleRedirect(redirect), throwsA(isA<GhaymaAuthException>()));
+      await expectLater(
+          auth.handleRedirect(redirect), throwsA(isA<GhaymaAuthException>()));
+
+      expect(recorder.count('POST', '/v1/my-app/oauth/exchange'), 2);
+      expect(recorder.bodyOf('POST', '/v1/my-app/oauth/exchange'),
+          {'code': 'abc', 'code_verifier': start.codeVerifier});
+    });
+
     test('a pending second factor propagates', () async {
       final recorder = Recorder()
         ..on('POST', '/v1/my-app/oauth/exchange', json: _challengeJson);
