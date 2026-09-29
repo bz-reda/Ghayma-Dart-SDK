@@ -18,6 +18,23 @@ const _email = 'user@example.com';
 const _password = 's3cret-passphrase';
 const _redirectUri = 'com.example.app://callback';
 
+final _throwsChallenge = throwsA(isA<TwoFactorRequiredException>()
+    .having((e) => e.code, 'code', 'two_fa_required')
+    .having(
+        (e) => e.result,
+        'result',
+        isA<TwoFaRequired>()
+            .having((r) => r.challengeToken, 'challengeToken', isNotEmpty)
+            .having((r) => r.methods, 'methods', contains('totp'))));
+
+final _throwsEnrolment = throwsA(isA<TwoFactorRequiredException>()
+    .having((e) => e.code, 'code', 'two_fa_enrollment_required')
+    .having(
+        (e) => e.result,
+        'result',
+        isA<TwoFaEnrollmentRequired>()
+            .having((r) => r.enrollToken, 'enrollToken', isNotEmpty)));
+
 /// A client against the mock, plus the transport whose `Prefer` header picks
 /// which documented response comes back.
 class Harness {
@@ -364,6 +381,30 @@ void main() {
       expect(session.user.email, _email);
     });
 
+    test('a pending second factor at the exchange throws its challenge',
+        () async {
+      final h = harness()..prefer = 'example=two_fa_required';
+      final pkce = await Pkce.generate();
+
+      await expectLater(
+          h.auth.exchangeCode(
+              code: '6d3b17f0c94a', codeVerifier: pkce.codeVerifier),
+          _throwsChallenge);
+      expect(h.auth.isAuthenticated, isFalse);
+    });
+
+    test('an enforced enrolment at the exchange throws its enrol token',
+        () async {
+      final h = harness()..prefer = 'example=enrollment_required';
+      final pkce = await Pkce.generate();
+
+      await expectLater(
+          h.auth.exchangeCode(
+              code: '6d3b17f0c94a', codeVerifier: pkce.codeVerifier),
+          _throwsEnrolment);
+      expect(h.auth.isAuthenticated, isFalse);
+    });
+
     test('a spent code maps to invalid_grant', () async {
       final h = harness()..prefer = 'code=400, example=invalid_grant';
       final pkce = await Pkce.generate();
@@ -384,6 +425,26 @@ void main() {
 
       expect(session.user.provider, 'google');
       expect(h.auth.isAuthenticated, isTrue);
+    });
+
+    test('a pending second factor at the ID-token sign-in throws its challenge',
+        () async {
+      final h = harness()..prefer = 'example=two_fa_required';
+
+      await expectLater(
+          h.auth.signInWithIdToken(idToken: 'eyJhbGciOiJSUzI1NiJ9'),
+          _throwsChallenge);
+      expect(h.auth.isAuthenticated, isFalse);
+    });
+
+    test('an enforced enrolment at the ID-token sign-in throws its enrol token',
+        () async {
+      final h = harness()..prefer = 'example=enrollment_required';
+
+      await expectLater(
+          h.auth.signInWithIdToken(idToken: 'eyJhbGciOiJSUzI1NiJ9'),
+          _throwsEnrolment);
+      expect(h.auth.isAuthenticated, isFalse);
     });
 
     test('a rejected ID token maps to invalid_token', () async {
