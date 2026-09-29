@@ -433,4 +433,13 @@ void main() {
       );
     });
   });
+
+  group('TwoFactorRequiredException', () {
+    test('refuses to wrap a session', () {
+      final success = LoginResult.fromJson(sessionJson());
+
+      expect(() => TwoFactorRequiredException(success),
+          throwsA(isA<AssertionError>()));
+    });
+  });
 }

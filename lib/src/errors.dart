@@ -31,10 +31,13 @@ class GhaymaAuthException implements Exception {
 /// with the 2FA verify call) or a [TwoFaEnrollmentRequired] (enrol with its
 /// token).
 class TwoFactorRequiredException extends GhaymaAuthException {
+  /// Always a [TwoFaRequired] or a [TwoFaEnrollmentRequired], never a
+  /// [LoginSuccess].
   final LoginResult result;
 
   TwoFactorRequiredException(this.result)
-      : super(
+      : assert(result is! LoginSuccess, 'a session is not a pending step'),
+        super(
             200,
             result is TwoFaEnrollmentRequired
                 ? 'two_fa_enrollment_required'
