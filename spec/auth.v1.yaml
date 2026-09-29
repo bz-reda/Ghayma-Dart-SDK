@@ -1476,6 +1476,13 @@ paths:
         Failures redirect to the same URI with `#error=…`. Once the mobile OAuth
         change ships, a flow started with a `code_challenge` instead receives a
         one-time `?code=…` query parameter and no tokens.
+        When the app's 2FA policy applies to the user, the fragment carries the pending
+        second-factor step instead of tokens —
+        `#two_fa_required=true&challenge_token=…&methods=totp` (finish at POST
+        /2fa/verify) or `#two_fa_enrollment_required=true&enroll_token=…&methods=totp`
+        (enrol with the token) — and a PKCE flow meets the same step at POST
+        /oauth/exchange. An email the provider has not verified is refused with an
+        error redirect.
       x-internal: true
       parameters:
         - name: code
@@ -1590,13 +1597,17 @@ paths:
               code_verifier: dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk
       responses:
         '200':
-          description: The same body as a successful login.
+          description: The same bodies as POST /login — a session, or a pending second-factor step when the app's 2FA policy applies to this user.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Session'
+                oneOf:
+                  - $ref: '#/components/schemas/Session'
+                  - $ref: '#/components/schemas/TwoFARequired'
+                  - $ref: '#/components/schemas/TwoFAEnrollmentRequired'
               examples:
                 success:
+                  summary: No second factor applies.
                   value:
                     access_token: eyJhbGciOiJSUzI1NiIsImtpZCI6Im15LWFwcC12MSJ9...
                     refresh_token: 9f8e7d6c5b4a...
@@ -1613,6 +1624,19 @@ paths:
                       recovery_codes_left: 0
                       created_at: '2026-09-01T10:15:00Z'
                       last_login_at: '2026-09-09T08:30:00Z'
+                two_fa_required:
+                  summary: Enrolled user — finish at /2fa/verify.
+                  value:
+                    two_fa_required: true
+                    challenge_token: 4c1d8ab2e3f5...
+                    methods: [totp]
+                    phone_hint: ''
+                enrollment_required:
+                  summary: Enforced policy, user not enrolled — run TOTP enrolment with the enroll_token.
+                  value:
+                    two_fa_enrollment_required: true
+                    enroll_token: 7b2e9c40a1d6...
+                    methods: [totp]
         '400':
           description: Malformed body, or a code that is unknown, expired, already spent, for another app, or does not match the verifier.
           content:
@@ -1671,13 +1695,17 @@ paths:
               nonce: 7f3a1c9e0b52
       responses:
         '200':
-          description: The same body as a successful login.
+          description: The same bodies as POST /login — a session, or a pending second-factor step when the app's 2FA policy applies to this user.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Session'
+                oneOf:
+                  - $ref: '#/components/schemas/Session'
+                  - $ref: '#/components/schemas/TwoFARequired'
+                  - $ref: '#/components/schemas/TwoFAEnrollmentRequired'
               examples:
                 success:
+                  summary: No second factor applies.
                   value:
                     access_token: eyJhbGciOiJSUzI1NiIsImtpZCI6Im15LWFwcC12MSJ9...
                     refresh_token: 9f8e7d6c5b4a...
@@ -1694,6 +1722,19 @@ paths:
                       recovery_codes_left: 0
                       created_at: '2026-09-01T10:15:00Z'
                       last_login_at: '2026-09-09T08:30:00Z'
+                two_fa_required:
+                  summary: Enrolled user — finish at /2fa/verify.
+                  value:
+                    two_fa_required: true
+                    challenge_token: 4c1d8ab2e3f5...
+                    methods: [totp]
+                    phone_hint: ''
+                enrollment_required:
+                  summary: Enforced policy, user not enrolled — run TOTP enrolment with the enroll_token.
+                  value:
+                    two_fa_enrollment_required: true
+                    enroll_token: 7b2e9c40a1d6...
+                    methods: [totp]
         '400':
           description: Unsupported provider, a provider that is off for this app, or a token with no email claim.
           content:
@@ -1720,7 +1761,7 @@ paths:
                     error: invalid id token
                     code: invalid_token
         '403':
-          description: The app is at the user cap of its capacity bracket, or the account is disabled.
+          description: The app is at the user cap of its capacity bracket, the account is disabled, or Google has not verified the account's email address.
           content:
             application/json:
               schema:
@@ -1732,6 +1773,10 @@ paths:
                 disabled:
                   value:
                     error: Account is disabled
+                email_not_verified:
+                  value:
+                    error: Your Google account's email address is not verified
+                    code: email_not_verified
         '429':
           $ref: '#/components/responses/RateLimited'
         '404':
@@ -1964,7 +2009,7 @@ components:
           $ref: '#/components/schemas/User'
     TwoFARequired:
       type: object
-      description: The password verified but the user holds a second factor.
+      description: The first factor verified (password or provider sign-in) but the user holds a second factor.
       required: [two_fa_required, challenge_token, methods, phone_hint]
       properties:
         two_fa_required:
