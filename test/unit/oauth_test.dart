@@ -238,6 +238,25 @@ void main() {
           _throwsChallenge);
       expect(auth.isAuthenticated, isFalse);
     });
+
+    test('forgets the verifier once the code is redeemed for a second factor',
+        () async {
+      final recorder = Recorder()
+        ..on('POST', '/v1/my-app/oauth/exchange', json: _challengeJson);
+      final auth = build(recorder);
+      addTearDown(auth.dispose);
+
+      await auth.startOAuth(OAuthProvider.google, redirectUri: _redirect);
+      await expectLater(auth.handleRedirect(Uri.parse('$_redirect?code=abc')),
+          throwsA(isA<TwoFactorRequiredException>()));
+
+      await expectLater(
+        auth.handleRedirect(Uri.parse('$_redirect?code=def')),
+        throwsA(isA<GhaymaAuthException>()
+            .having((e) => e.code, 'code', 'invalid_grant')),
+      );
+      expect(recorder.count('POST', '/v1/my-app/oauth/exchange'), 1);
+    });
   });
 
   group('exchangeCode', () {

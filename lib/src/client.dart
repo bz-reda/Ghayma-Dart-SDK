@@ -427,11 +427,13 @@ class GhaymaAuth {
   /// Finishes a sign-in from the URI the provider redirected to.
   ///
   /// Uses [codeVerifier] when given, else the one [startOAuth] remembered,
-  /// which it forgets once the exchange succeeds.
+  /// which it forgets once the service redeems the code, a pending second
+  /// factor included.
   ///
   /// Throws [GhaymaAuthException] 400 `oauth_error` when the redirect carries
   /// `?error=`, `invalid_request` when it carries no code, and `invalid_grant`
-  /// when no verifier is available for it.
+  /// when no verifier is available for it; [TwoFactorRequiredException] when
+  /// the app's 2FA policy applies to the user.
   Future<Session> handleRedirect(Uri redirect, {String? codeVerifier}) async {
     final error = redirect.queryParameters['error'];
     if (error != null && error.isNotEmpty) {
@@ -450,9 +452,15 @@ class GhaymaAuth {
           400, 'invalid_grant', 'no PKCE verifier for this redirect');
     }
 
-    final session = await exchangeCode(code: code, codeVerifier: verifier);
-    _pendingVerifier = null;
-    return session;
+    try {
+      final session = await exchangeCode(code: code, codeVerifier: verifier);
+      _pendingVerifier = null;
+      return session;
+    } on TwoFactorRequiredException {
+      // The code is spent all the same; only the second factor is left.
+      _pendingVerifier = null;
+      rethrow;
+    }
   }
 
   /// Trades the one-time code from a PKCE redirect for a session.
