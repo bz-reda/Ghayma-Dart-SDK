@@ -529,7 +529,7 @@ paths:
               examples:
                 invalid_request:
                   value:
-                    error: password change is only available for email-based accounts
+                    error: this account has no password; set one with a password reset
         '401':
           description: Wrong current password, or no valid access token.
           content:
