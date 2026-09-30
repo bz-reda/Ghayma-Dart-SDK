@@ -146,6 +146,29 @@ if (idToken != null) {
 }
 ```
 
+### Second factor on OAuth sign-in
+
+When the app's 2FA policy applies to the user, `handleRedirect`,
+`exchangeCode` and `signInWithIdToken` store no session and throw
+`TwoFactorRequiredException`. Its `result` is the pending step `login` returns
+for the same user, and the sign-in finishes the same way:
+
+```dart
+try {
+  await auth.handleRedirect(Uri.parse(result));
+} on TwoFactorRequiredException catch (e) {
+  if (e.result case TwoFaRequired(:final challengeToken)) {
+    await auth.verify2fa(challengeToken: challengeToken, code: '123456');
+  } else if (e.result case TwoFaEnrollmentRequired(:final enrollToken)) {
+    final enrollment = await auth.enrollTotp(enrollToken: enrollToken);
+    print('scan ${enrollment.otpauthUri} in an authenticator');
+    await auth.confirmTotp(code: '123456', enrollToken: enrollToken);
+  }
+}
+```
+
+It extends `GhaymaAuthException`, so catch it first when you catch both.
+
 ### Console setup
 
 In the Ghayma console, for your auth app:
@@ -188,8 +211,11 @@ and, on rate limits, `retryAfter` in seconds.
 | `invalid_request` | the request was malformed or a field was rejected |
 | `invalid_grant` | a spent, expired or mismatched one-time code at `exchangeCode` |
 | `invalid_token` | a provider ID token that failed verification |
+| `email_not_verified` | a Google ID token for an address Google has not verified (403) |
 | `rate_limited` | 429; read `retryAfter` |
 | `oauth_error` | the provider handed back `?error=` on the redirect |
+| `two_fa_required` | a `TwoFactorRequiredException`: an OAuth sign-in awaits a 2FA code (`status` 200) |
+| `two_fa_enrollment_required` | a `TwoFactorRequiredException`: an OAuth sign-in awaits TOTP enrolment (`status` 200) |
 | `network_error` | the request never reached the service (`status` 0) |
 | `timeout` | no answer within 30 s (`status` 408) |
 | `auth_error` | anything the service did not label — a wrong password or 2FA code is a plain `401` here, a missing session is `401` before any request |
