@@ -7,7 +7,7 @@ on:
 
 jobs:
   test:
-    runs-on: ghayma-dart-sdk
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dart-lang/setup-dart@v1
@@ -23,7 +23,7 @@ jobs:
           git diff --exit-code spec/
 
   conformance:
-    runs-on: ghayma-dart-sdk
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dart-lang/setup-dart@v1
