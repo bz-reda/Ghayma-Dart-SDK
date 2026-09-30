@@ -1225,6 +1225,16 @@ paths:
                 disabled:
                   value:
                     error: not found
+        '409':
+          description: TOTP is already enabled for this user — a second confirm (a double submit) does not enrol twice or mint a second recovery set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                already_enabled:
+                  value:
+                    error: TOTP is already enabled
 
   /v1/{appSlug}/2fa/disable:
     parameters:
