@@ -233,9 +233,11 @@ paths:
       operationId: refresh
       summary: Rotate a refresh token for a new token pair.
       description: |
-        The presented refresh token is revoked and replaced. Presenting an
-        already-revoked token is treated as theft: every session of that user in
-        this app is revoked and the call answers 403.
+        The presented refresh token is revoked and replaced. Presenting a token
+        that was already replaced, before it expires, is treated as theft: every
+        session of that user in this app ends and the call answers 403. An
+        expired token, or one issued before the user's sessions last ended,
+        answers 401 and ends nothing.
       parameters:
         - $ref: '#/components/parameters/serverKey'
         - $ref: '#/components/parameters/clientIP'
@@ -282,7 +284,7 @@ paths:
                   value:
                     error: invalid refresh token
         '403':
-          description: Reuse of a revoked token — all sessions of this user were revoked.
+          description: Reuse of a replaced token before its expiry — every session of this user ended.
           content:
             application/json:
               schema:
@@ -497,7 +499,7 @@ paths:
       tags: [Account]
       operationId: changePassword
       summary: Change the signed-in user's password.
-      description: Every refresh token of the account is revoked, forcing re-login everywhere.
+      description: Every session of the account ends, this one included, forcing re-login everywhere.
       security:
         - bearerAuth: []
       requestBody:
@@ -603,7 +605,7 @@ paths:
       tags: [Password]
       operationId: resetPassword
       summary: Set a new password with an emailed reset token.
-      description: The token is consumed and every refresh token of the account is revoked.
+      description: The token is consumed and every session of the account ends.
       parameters:
         - $ref: '#/components/parameters/serverKey'
         - $ref: '#/components/parameters/clientIP'
@@ -936,8 +938,7 @@ paths:
       description: |
         Public on purpose: the user may open the link on the new-email device while
         signed out, so the token is the only credential. Renders HTML, marks the new
-        address verified, and revokes every refresh token of the account. Not an SDK
-        call.
+        address verified, and ends every session of the account. Not an SDK call.
       parameters:
         - name: token
           in: query
@@ -1863,6 +1864,15 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: |
+        The access token from sign-in. Every session of a user ends on a
+        password reset or change, a confirmed email change, a provider sign-in
+        taking the account over, a replaced refresh token presented again, or
+        the user being disabled. From then on this service refuses every access
+        and refresh token issued before, with 401, and a pending second-factor
+        challenge or email change stops working. Tokens carry a `sep` claim
+        naming the session generation they belong to. A backend that verifies
+        tokens itself against the JWKS keeps accepting them until they expire.
   headers:
     RetryAfter:
       description: Seconds until the tripped limit resets.
@@ -1897,7 +1907,8 @@ components:
       description: |
         No usable access token. The message names the reason: a missing or malformed
         `Authorization` header, an expired or unverifiable token, claims without a
-        subject, or a user that no longer exists.
+        subject, or a user that no longer exists. A token issued before the user's
+        sessions last ended answers like an expired one.
       content:
         application/json:
           schema:
