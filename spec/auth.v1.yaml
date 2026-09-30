@@ -1482,9 +1482,10 @@ paths:
         `#two_fa_required=true&challenge_token=…&methods=totp` (finish at POST
         /2fa/verify) or `#two_fa_enrollment_required=true&enroll_token=…&methods=totp`
         (enrol with the token) — and a PKCE flow meets the same step at POST
-        /oauth/exchange. An email the provider has not verified, or an existing
-        password account whose email was never verified, is refused with an error
-        redirect.
+        /oauth/exchange. An email the provider has not verified is refused with an
+        error redirect. A provider sign-in that matches a password account whose
+        email was never verified takes that account over: the password is removed
+        and its sessions end, and the email counts as verified.
       x-internal: true
       parameters:
         - name: code
@@ -1678,7 +1679,9 @@ paths:
       summary: Sign in with a provider ID token obtained natively.
       description: |
         For native sign-in on iOS and Android, where the platform hands the app an ID
-        token and no browser is involved. The token is verified against the provider's
+        token and no browser is involved. Like the browser callbacks, a sign-in that
+        matches a password account whose email was never verified takes that account
+        over: the password is removed and its sessions end. The token is verified against the provider's
         JWKS and against the app's registered client ids — its web client id plus the
         native client ids configured in the console. `nonce`, when sent, must match the
         token's claim.
@@ -1779,17 +1782,6 @@ paths:
                   value:
                     error: Your Google account's email address is not verified
                     code: email_not_verified
-        '409':
-          description: An account with this email exists, has a password, and has never verified its email address, so the Google identity is not linked into it. Sign in with the password and verify the email, or reset the password, then try again.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              examples:
-                account_email_unverified:
-                  value:
-                    error: An account with this email already exists and its email address is not verified. Sign in with your password and verify your email, or reset your password, then use Google again
-                    code: account_email_unverified
         '429':
           $ref: '#/components/responses/RateLimited'
         '404':

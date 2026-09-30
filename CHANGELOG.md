@@ -16,11 +16,9 @@ already did to `login`.
   the code either way. After a failure (`invalid_grant`, a network error, a
   timeout) it keeps the verifier, so the app can retry.
 - The vendored contract documents the pending bodies of `/oauth/exchange` and
-  `/oauth/id-token`, and two refusals of `/oauth/id-token`, which surface as a
-  `GhaymaAuthException` with that `code`:
-  - `email_not_verified` (403): Google has not verified the address;
-  - `account_email_unverified` (409): a password account holds the address
-    and never verified it; the user verifies it or resets the password first.
+  `/oauth/id-token`, and the `403 email_not_verified` refusal of
+  `/oauth/id-token` (Google has not verified the address), which surfaces as a
+  `GhaymaAuthException` with that `code`.
 
 Upgrade before turning 2FA on for an app that signs in with OAuth: 0.1.0 reads
 a pending answer as a session with empty tokens.
