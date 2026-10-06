@@ -1,6 +1,6 @@
 name: ghayma_auth
 description: "Client for the Ghayma auth service: sign-in, sessions, 2FA, PKCE OAuth and native Google sign-in for Dart and Flutter apps."
-version: 0.2.0
+version: 0.3.0
 repository: https://github.com/bz-reda/Ghayma-Dart-SDK
 homepage: https://docs.ghayma.cloud
 

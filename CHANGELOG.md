@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0
+
+- `verify2fa`, `refresh` and `verifyResetToken` take `RequestOptions`, as
+  `login` already does. A server that holds the app's `serverKey` forwards the
+  end user's IP with `RequestOptions(clientIp: …)`, so the service charges
+  these calls' rate limits to that address instead of the server's. Calls
+  without `options` behave as before. Concurrent `refresh` calls still share
+  one rotation, and with it the first caller's options.
+- On Ghayma, forward the `X-Real-IP` header: `request.remoteAddress` is the
+  platform's edge. The README's server sample now reads that header. Its
+  server key comes from `GHAYMA_AUTH_SERVER_KEY`: the 0.2.0 sample read
+  `GHAYMA_SERVER_KEY`, which Ghayma never injects, so the copied key was null
+  and nothing was forwarded.
+
 ## 0.2.0
 
 The auth service now applies an app's 2FA policy to OAuth sign-in, as it

@@ -770,6 +770,58 @@ void main() {
       expect(headers.containsKey('X-Ghayma-Server-Key'), isFalse);
       expect(headers.containsKey('X-Ghayma-Client-IP'), isFalse);
     });
+
+    test('verify2fa forwards the client IP alongside the key', () async {
+      final recorder = Recorder()
+        ..on('POST', '/v1/my-app/2fa/verify', json: sessionJson());
+      final auth = build(recorder, serverKey: 'ghs_secret');
+      addTearDown(auth.dispose);
+
+      await auth.verify2fa(
+          challengeToken: 'challenge',
+          code: '123456',
+          options: const RequestOptions(clientIp: '1.2.3.4'));
+
+      final headers = recorder.last('POST', '/v1/my-app/2fa/verify').headers;
+      expect(headers['X-Ghayma-Server-Key'], 'ghs_secret');
+      expect(headers['X-Ghayma-Client-IP'], '1.2.3.4');
+    });
+
+    test('refresh forwards the client IP alongside the key', () async {
+      final recorder = Recorder();
+      final auth = build(recorder, serverKey: 'ghs_secret');
+      addTearDown(auth.dispose);
+      await signIn(recorder, auth);
+      recorder.on('POST', '/v1/my-app/refresh', json: {
+        'access_token': 'access-2',
+        'refresh_token': 'refresh-2',
+        'expires_in': 900,
+        'token_type': 'Bearer',
+      });
+
+      await auth.refresh(options: const RequestOptions(clientIp: '1.2.3.4'));
+
+      final headers = recorder.last('POST', '/v1/my-app/refresh').headers;
+      expect(headers['X-Ghayma-Server-Key'], 'ghs_secret');
+      expect(headers['X-Ghayma-Client-IP'], '1.2.3.4');
+    });
+
+    test('verifyResetToken forwards the client IP alongside the key', () async {
+      final recorder = Recorder()
+        ..on('POST', '/v1/my-app/verify-reset-token',
+            json: {'valid': true, 'email': 'user@example.com'});
+      final auth = build(recorder, serverKey: 'ghs_secret');
+      addTearDown(auth.dispose);
+
+      await auth.verifyResetToken(
+          token: '5e1f0a7c',
+          options: const RequestOptions(clientIp: '1.2.3.4'));
+
+      final headers =
+          recorder.last('POST', '/v1/my-app/verify-reset-token').headers;
+      expect(headers['X-Ghayma-Server-Key'], 'ghs_secret');
+      expect(headers['X-Ghayma-Client-IP'], '1.2.3.4');
+    });
   });
 
   group('auto refresh', () {
