@@ -237,7 +237,9 @@ paths:
         that was already replaced, before it expires, is treated as theft: every
         session of that user in this app ends and the call answers 403. An
         expired token, or one issued before the user's sessions last ended,
-        answers 401 and ends nothing.
+        answers 401 and ends nothing. A refresh token belongs to the app that
+        issued it: presented under another app's slug it is unknown there
+        (401), and nothing is revoked or ended for it.
       parameters:
         - $ref: '#/components/parameters/serverKey'
         - $ref: '#/components/parameters/clientIP'
@@ -305,7 +307,9 @@ paths:
       tags: [Session]
       operationId: logout
       summary: Revoke one refresh token.
-      description: Always answers 200, whether or not the token existed.
+      description: |
+        Always answers 200, whether or not the token existed. The token must
+        belong to the app in the URL; another app's token is left untouched.
       requestBody:
         required: true
         content:
@@ -1000,7 +1004,9 @@ paths:
         Spends the `challenge_token` from a login or OAuth sign-in response together
         with a TOTP code or a recovery code. Every attempt takes one of the
         challenge's five tries; once they are gone, or the challenge has been
-        spent, the sign-in starts over.
+        spent, the sign-in starts over. A TOTP code is accepted once: a code
+        already used, here or at any other endpoint that takes one, is refused
+        exactly like a wrong code.
       parameters:
         - $ref: '#/components/parameters/serverKey'
         - $ref: '#/components/parameters/clientIP'
@@ -1867,8 +1873,9 @@ components:
       description: |
         The access token from sign-in. Every session of a user ends on a
         password reset or change, a confirmed email change, a provider sign-in
-        taking the account over, a replaced refresh token presented again, or
-        the user being disabled. From then on this service refuses every access
+        taking the account over, a replaced refresh token presented again, the
+        user being disabled, or their second factor being reset by the app's
+        developer. From then on this service refuses every access
         and refresh token issued before, with 401, and a pending second-factor
         challenge or email change stops working. Tokens carry a `sep` claim
         naming the session generation they belong to. A backend that verifies
@@ -2193,7 +2200,7 @@ components:
           type: string
         code:
           type: string
-          description: A TOTP code or one of the recovery codes.
+          description: A TOTP code or one of the recovery codes. Either kind works once.
     TotpEnrollRequest:
       type: object
       description: Send `enroll_token` when enrolling from an enforced login; omit it when a bearer token is present.
@@ -2216,6 +2223,7 @@ components:
       properties:
         code:
           type: string
+          description: The authenticator's current code. A code already accepted anywhere is refused like a wrong one.
         enroll_token:
           type: string
     TotpConfirmation:
@@ -2247,7 +2255,7 @@ components:
           type: string
         code:
           type: string
-          description: A TOTP code or one of the recovery codes.
+          description: A TOTP code or one of the recovery codes. Either kind works once.
     RecoveryCodes:
       type: object
       required: [recovery_codes]
