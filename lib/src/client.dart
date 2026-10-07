@@ -167,8 +167,10 @@ class GhaymaAuth {
   Future<Session> verify2fa({
     required String challengeToken,
     required String code,
+    RequestOptions? options,
   }) async {
     final json = await _http.send('POST', '/2fa/verify',
+        options: options,
         body: {'challenge_token': challengeToken, 'code': code});
     final session = Session.fromJson(json);
     await _setSession(session, AuthEvent.signedIn);
@@ -229,23 +231,25 @@ class GhaymaAuth {
 
   /// Rotates the refresh token for a new pair. A rejected token (401, or a 403
   /// for reuse, which revokes every session) clears the session and emits
-  /// [AuthEvent.signedOut] before the error is rethrown.
-  Future<TokenPair> refresh() {
+  /// [AuthEvent.signedOut] before the error is rethrown. A call that joins an
+  /// in-flight rotation shares that rotation's request, so its [options] are
+  /// not applied.
+  Future<TokenPair> refresh({RequestOptions? options}) {
     // One rotation at a time: a second caller waits for the first rather than
-    // spending the refresh token twice.
-    return _inFlightRefresh ??= _refresh().whenComplete(() {
+    // spending the refresh token twice (and shares its options).
+    return _inFlightRefresh ??= _refresh(options).whenComplete(() {
       _inFlightRefresh = null;
     });
   }
 
-  Future<TokenPair> _refresh() async {
+  Future<TokenPair> _refresh(RequestOptions? options) async {
     final session = _store.session;
     if (session == null) throw _notAuthenticated();
 
     final Map<String, Object?> json;
     try {
       json = await _http.send('POST', '/refresh',
-          body: {'refresh_token': session.refreshToken});
+          options: options, body: {'refresh_token': session.refreshToken});
     } on GhaymaAuthException catch (err) {
       if (err.status == 401 || err.status == 403) await _clearSession();
       rethrow;
@@ -294,9 +298,12 @@ class GhaymaAuth {
 
   /// Checks a reset token without spending it, so a custom reset page can say
   /// "link expired" before asking for a new password.
-  Future<ResetTokenInfo> verifyResetToken({required String token}) async {
-    final json =
-        await _http.send('POST', '/verify-reset-token', body: {'token': token});
+  Future<ResetTokenInfo> verifyResetToken({
+    required String token,
+    RequestOptions? options,
+  }) async {
+    final json = await _http.send('POST', '/verify-reset-token',
+        options: options, body: {'token': token});
     return ResetTokenInfo.fromJson(json);
   }
 

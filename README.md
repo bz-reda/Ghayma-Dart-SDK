@@ -187,14 +187,22 @@ user's IP so rate limits are charged to that address rather than to your
 server:
 
 ```dart
-final auth = GhaymaAuth(appSlug: 'my-app', serverKey: Platform.environment['GHAYMA_SERVER_KEY']);
+final auth = GhaymaAuth(
+  appSlug: 'my-app',
+  serverKey: Platform.environment['GHAYMA_AUTH_SERVER_KEY'],
+);
 
 await auth.login(
   email: email,
   password: password,
-  options: RequestOptions(clientIp: request.remoteAddress.address),
+  options: RequestOptions(clientIp: request.headers.value('x-real-ip')),
 );
 ```
+
+On Ghayma, `request.remoteAddress` is the platform's edge; the visitor's IP is
+in `X-Real-IP`. `X-Real-IP` is trustworthy because Ghayma's edge overwrites it;
+if your server is also reachable another way (another host, your own proxy),
+make sure that path overwrites it too, or don't forward it.
 
 The two headers travel together or not at all: without a `serverKey` the
 `clientIp` is dropped, and anything that is not a bare IP literal (a whole
